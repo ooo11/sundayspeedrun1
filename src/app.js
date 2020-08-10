@@ -5,12 +5,14 @@ const helmet = require("helmet");
 
 const middlewares = require("./middleware");
 const api = require("./api");
+const { checkTokenSetUser } = require("./api/auth");
 const app = express();
 
 app.use(morgan("tiny"));
 app.use(compression());
 app.use(helmet());
 app.use(express.json());
+app.use(checkTokenSetUser);
 
 app.get("/", (req, res) => {
   res.json({ message: "Speed Run Sunday 2 Aug 2020 🏃🏼‍🏃🏻‍💨 " });

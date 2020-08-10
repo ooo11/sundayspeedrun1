@@ -6,6 +6,13 @@ const tableNames = require("../../constant/tableNames");
 const router = express.Router();
 const bcrypt = require("bcrypt");
 const yup = require("yup");
+const jwt = require("../../lib/jwt");
+const { isLoggedIn } = require("../auth");
+
+const errorMessages = {
+  invalidLogin: "Invalid login.",
+  nameInUse: "Name already in use.",
+};
 
 const schema = yup.object().shape({
   name: yup.string().trim().min(2).required(),
@@ -34,7 +41,7 @@ const schema = yup.object().shape({
     .matches(/[0-9]/, "new password must contain a number"),
 });
 
-router.get("/", async (req, res) => {
+router.get("/", isLoggedIn, async (req, res) => {
   const user = await Users.query()
     .select("id", "name", "password")
     .where("deleted_at", null);
@@ -42,7 +49,7 @@ router.get("/", async (req, res) => {
   res.json(user);
 });
 
-router.get("/:id", async (req, res, next) => {
+router.get("/:id", isLoggedIn, async (req, res, next) => {
   const { id } = req.params;
   try {
     if (isNaN(id)) {
@@ -65,7 +72,7 @@ router.get("/:id", async (req, res, next) => {
   }
 });
 
-router.post("/", async (req, res, next) => {
+router.post("/signup", async (req, res, next) => {
   const { name, password } = req.body;
   try {
     const createUser = { name, password };
@@ -74,7 +81,7 @@ router.post("/", async (req, res, next) => {
     });
     const userExist = await Users.query().where({ name }).first();
     if (userExist) {
-      const error = new Error("name taken");
+      const error = new Error(errorMessages.nameInUse);
       res.status(403);
       throw error;
     } else {
@@ -86,14 +93,61 @@ router.post("/", async (req, res, next) => {
 
       delete insertNewUser.password;
 
-      res.json(insertNewUser);
+      const payload = {
+        id: insertNewUser.id,
+        name,
+      };
+      const token = await jwt.sign(payload);
+      res.json({
+        user: payload,
+        token,
+      });
     }
   } catch (error) {
     next(error);
   }
 });
 
-router.put("/:id", async (req, res, next) => {
+router.post("/signin", async (req, res, next) => {
+  const { name, password } = req.body;
+  try {
+    await schema.validate(
+      {
+        name,
+        password,
+      },
+      {
+        abortEarly: false,
+      }
+    );
+    const user = await Users.query().where({ name }).first();
+    if (!user) {
+      const error = new Error(errorMessages.invalidLogin);
+      res.status(403);
+      throw error;
+    }
+    const validPassword = await bcrypt.compare(password, user.password);
+    if (!validPassword) {
+      const error = new Error(errorMessages.invalidLogin);
+      res.status(403);
+      throw error;
+    }
+
+    const payload = {
+      id: user.id,
+      name,
+    };
+    const token = await jwt.sign(payload);
+    res.json({
+      user: payload,
+      token,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put("/:id", isLoggedIn, async (req, res, next) => {
   const { id } = req.params;
   try {
     await schema.validate(req.body, {
@@ -137,7 +191,7 @@ router.put("/:id", async (req, res, next) => {
   }
 });
 
-router.delete("/:id", async (req, res, next) => {
+router.delete("/:id", isLoggedIn, async (req, res, next) => {
   const { id } = req.params;
   try {
     if (isNaN(id)) {
